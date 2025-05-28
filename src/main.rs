@@ -1,14 +1,6 @@
 use std::time;
 
-use wgpu::{
-    Backends, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BindingType, BufferBindingType, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
-    ComputePassDescriptor, ComputePipelineDescriptor, DeviceDescriptor, Instance,
-    InstanceDescriptor, MaintainBase, MapMode, PipelineCompilationOptions,
-    PipelineLayoutDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource,
-    ShaderStages,
-    util::{BufferInitDescriptor, DeviceExt},
-};
+use wgpu::util::DeviceExt;
 
 const MATRIZ_WIDTH: usize = 1920;
 const MATRIZ_HEIGHT: usize = 1080;
@@ -24,20 +16,35 @@ fn main() {
 }
 
 async fn run(matriz: &Vec<Vec<u32>>) {
-    let instance = Instance::new(&InstanceDescriptor {
-        backends: Backends::PRIMARY,
-        ..Default::default()
-    });
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
     let adapter = instance
-        .request_adapter(&RequestAdapterOptions::default())
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await
         .unwrap();
 
+    // Verifica se a GPU suporta compute shaders
+    if !adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
+    {
+        panic!("Adapter does not support compute shaders")
+    }
+
     let (device, queue) = adapter
-        .request_device(&DeviceDescriptor::default())
+        .request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            trace: wgpu::Trace::Off,
+        })
         .await
         .unwrap();
+
+    // Carrega o shader
+    let shader_module = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
     // Trata os dados para o jeito que a GPU trabalha
     let matriz_linear = matriz.concat();
@@ -47,54 +54,46 @@ async fn run(matriz: &Vec<Vec<u32>>) {
     let matriz_width_bytes: &[u8] = bytemuck::cast_slice(&matriz_width);
 
     // Cria um buffer para a GPU ler os dados da matriz
-    let input_buffer_matriz = device.create_buffer_init(&BufferInitDescriptor {
+    let input_buffer_matriz = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         contents: matriz_linear_bytes,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         label: None,
     });
 
-    let input_buffer_width = device.create_buffer_init(&BufferInitDescriptor {
+    let input_buffer_width = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         contents: matriz_width_bytes,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         label: None,
     });
 
     // Cria um buffer para a GPU salvar os dados
-    let output_buffer = device.create_buffer(&BufferDescriptor {
+    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Staging Buffer"),
         size: matriz_linear_bytes.len() as u64,
-        usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
 
-    // CARREGA O SHADER
-    let shader_src = include_str!("shader.wgsl");
-
-    let shader_module = device.create_shader_module(ShaderModuleDescriptor {
-        label: None,
-        source: ShaderSource::Wgsl(shader_src.into()),
-    });
-
     // Cria um "contrato" falando que os dados vão estar no group(0) e no binding certo
-    let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
-            BindGroupLayoutEntry {
+            wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::COMPUTE,
+                visibility: wgpu::ShaderStages::COMPUTE,
                 count: None,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
             },
-            BindGroupLayoutEntry {
+            wgpu::BindGroupLayoutEntry {
                 binding: 1,
-                visibility: ShaderStages::COMPUTE,
+                visibility: wgpu::ShaderStages::COMPUTE,
                 count: None,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -103,15 +102,15 @@ async fn run(matriz: &Vec<Vec<u32>>) {
     });
 
     // Faz os dados seguirem o contrato
-    let bind_group = device.create_bind_group(&BindGroupDescriptor {
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &bind_group_layout,
         entries: &[
-            BindGroupEntry {
+            wgpu::BindGroupEntry {
                 binding: 0,
                 resource: input_buffer_matriz.as_entire_binding(),
             },
-            BindGroupEntry {
+            wgpu::BindGroupEntry {
                 binding: 1,
                 resource: input_buffer_width.as_entire_binding(),
             },
@@ -119,26 +118,29 @@ async fn run(matriz: &Vec<Vec<u32>>) {
     });
 
     // Fala para o shader seguir o "contrato"
-    let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+    let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: None,
-        layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        })),
+        layout: Some(
+            &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            }),
+        ),
         module: &shader_module,
         entry_point: Some("main"),
         cache: None,
-        compilation_options: PipelineCompilationOptions {
+        compilation_options: wgpu::PipelineCompilationOptions {
             ..Default::default()
         },
     });
 
     // Cria um encoder para a GPU
-    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
     {
-        let mut computer_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+        let mut computer_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: None,
             ..Default::default()
         });
@@ -165,11 +167,11 @@ async fn run(matriz: &Vec<Vec<u32>>) {
 
     // Solicita mapeamento assíncrono
     let buffer_slice = output_buffer.slice(..);
-    buffer_slice.map_async(MapMode::Read, |_| {});
-    device.poll(MaintainBase::Wait).unwrap();
+    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+    device.poll(wgpu::MaintainBase::Wait).unwrap();
 
     let data = buffer_slice.get_mapped_range();
-    let result: Vec<i32> = bytemuck::cast_slice(&data).to_vec();
+    let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
 
     for index in 0..20 {
         println!("index {}: {}", index, result[index])

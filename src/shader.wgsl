@@ -8,7 +8,9 @@ var<storage, read> width: array<u32>;
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let index = id.y * width[0] + id.x;
 
-    if(index < arrayLength(&matriz)) {
-        matriz[index] = index % 16;
+    if(index >= arrayLength(&matriz)) {
+        return;
     }
+
+    matriz[index] = index % 16;
 }
