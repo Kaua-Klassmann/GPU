@@ -1,1 +1,1 @@
-# Código em Rust para aprender a usar GPU, que soma valores a uma matriz
+# Código em Rust para aprender a usar GPU
