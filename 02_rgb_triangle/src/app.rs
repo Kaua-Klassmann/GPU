@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use winit::{application::ApplicationHandler, event::WindowEvent, window::WindowAttributes};
 
-use crate::{render::render_tringle, state::State};
+use crate::{render, state::State};
 
 #[derive(Default)]
 pub struct App {
@@ -38,7 +38,10 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                state.render(Some(render_tringle(&state.device, &state.surface_format)));
+                state.render(Some(render::render_tringle(
+                    &state.device,
+                    &state.surface_config,
+                )));
                 state.get_window().request_redraw();
             }
             WindowEvent::Resized(size) => {

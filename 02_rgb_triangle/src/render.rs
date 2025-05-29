@@ -2,7 +2,7 @@ use std::ops::Range;
 
 pub fn render_tringle(
     device: &wgpu::Device,
-    surface_format: &wgpu::TextureFormat,
+    surface_config: &wgpu::SurfaceConfiguration,
 ) -> (wgpu::RenderPipeline, Range<u32>) {
     let shader = device.create_shader_module(wgpu::include_wgsl!("triangle.wgsl"));
 
@@ -25,7 +25,7 @@ pub fn render_tringle(
             module: &shader,
             entry_point: Some("fs_main"),
             compilation_options: Default::default(),
-            targets: &[Some(surface_format.add_srgb_suffix().into())],
+            targets: &[Some(surface_config.format.add_srgb_suffix().into())],
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,

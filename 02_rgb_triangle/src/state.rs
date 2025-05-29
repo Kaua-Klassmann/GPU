@@ -6,9 +6,8 @@ pub struct State {
     pub window: Arc<Window>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    pub size: PhysicalSize<u32>,
     pub surface: wgpu::Surface<'static>,
-    pub surface_format: wgpu::TextureFormat,
+    pub surface_config: wgpu::SurfaceConfiguration,
 }
 
 impl State {
@@ -40,13 +39,23 @@ impl State {
             .find(|f| f.is_srgb())
             .unwrap_or(&surface_caps.formats[0]);
 
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            view_formats: vec![],
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            width: size.width,
+            height: size.height,
+            desired_maximum_frame_latency: 2,
+            present_mode: wgpu::PresentMode::AutoVsync,
+        };
+
         let state = State {
             window,
             device,
             queue,
-            size,
             surface,
-            surface_format,
+            surface_config,
         };
 
         state.configure_surface();
@@ -59,21 +68,16 @@ impl State {
     }
 
     pub fn configure_surface(&self) {
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: self.surface_format,
-            view_formats: vec![],
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            width: self.size.width,
-            height: self.size.height,
-            desired_maximum_frame_latency: 2,
-            present_mode: wgpu::PresentMode::AutoVsync,
-        };
-        self.surface.configure(&self.device, &surface_config);
+        self.surface.configure(&self.device, &self.surface_config);
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        self.size = new_size;
+        if new_size.width < 1 || new_size.height < 1 {
+            return;
+        }
+
+        self.surface_config.width = new_size.width;
+        self.surface_config.height = new_size.height;
 
         self.configure_surface();
     }
@@ -83,7 +87,7 @@ impl State {
         let texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor {
-                format: Some(self.surface_format),
+                format: Some(self.surface_config.format),
                 ..Default::default()
             });
 
